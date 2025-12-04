@@ -1,11 +1,6 @@
 pipeline {
     agent any
 
-    environment {
-        GH_USER = credentials('github-packages-cred').usr
-        GH_TOKEN = credentials('github-packages-cred').psw
-    }
-
     stages {
 
         stage('Checkout Code') {
@@ -25,10 +20,16 @@ pipeline {
 
         stage('Deploy to GitHub Packages') {
             steps {
-                bat """
-                    echo ===== Deploying to GitHub Packages =====
-                    mvn -s settings.xml -DskipTests=false -B deploy
-                """
+                withCredentials([usernamePassword(credentialsId: 'github-packages-cred', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN')]) {
+                    bat """
+                        echo ===== Deploying to GitHub Packages =====
+
+                        mvn -s settings.xml ^
+                            -Denv.GH_USER=%GH_USER% ^
+                            -Denv.GH_TOKEN=%GH_TOKEN% ^
+                            -B deploy
+                    """
+                }
             }
         }
     }
