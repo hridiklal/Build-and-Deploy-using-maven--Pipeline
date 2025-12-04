@@ -22,7 +22,6 @@
 
     <build>
         <plugins>
-            <!-- Ensures your project builds a JAR properly -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -33,4 +32,12 @@
                 </configuration>
             </plugin>
 
-            <pl
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.2.2</version>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
