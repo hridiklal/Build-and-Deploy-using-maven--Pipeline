@@ -2,7 +2,6 @@ pipeline {
     agent any
 
     environment {
-        // Use credentials directly - Jenkins automatically creates GITHUB_CREDS_USR and GITHUB_CREDS_PSW
         GITHUB_CREDS = credentials('github-packages-cred')
         JAVA_HOME = tool name: 'jdk11'
         MAVEN_HOME = tool name: 'maven123'
@@ -10,103 +9,101 @@ pipeline {
     }
 
     stages {
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
-        stage('Debug Info') {
-            steps {
-                bat """
-                    echo "=== DEBUG INFORMATION ==="
-                    echo "GitHub Credentials USR: %GITHUB_CREDS_USR%"
-                    echo "Maven Home: %MAVEN_HOME%"
-                    echo "Java Home: %JAVA_HOME%"
-                    echo "Current directory:"
-                    cd
-                    echo "Files in directory:"
-                    dir
-                    echo "========================="
-                """
-            }
-        }
-
-        stage('Create Settings File') {
+        stage('Deploy to GitHub Packages') {
             steps {
                 script {
-                    // Read credentials safely
-                    withCredentials([usernamePassword(
-                        credentialsId: 'github-packages-cred',
-                        usernameVariable: 'GH_USER',
-                        passwordVariable: 'GH_TOKEN'
-                    )]) {
-                        def settingsContent = """<?xml version="1.0" encoding="UTF-8"?>
-<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
-          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 
-          http://maven.apache.org/xsd/settings-1.0.0.xsd">
-    <servers>
-        <server>
-            <id>github</id>
-            <username>${GH_USER}</username>
-            <password>${GH_TOKEN}</password>
-        </server>
-    </servers>
-</settings>"""
-                        writeFile file: 'settings.xml', text: settingsContent
-                    }
-                }
-            }
-        }
-
-        stage('Build & Deploy') {
-            steps {
-                script {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'github-packages-cred',
-                        usernameVariable: 'GH_USER',
-                        passwordVariable: 'GH_TOKEN'
-                    )]) {
-                        bat """
-                            echo "=== STARTING DEPLOYMENT ==="
-                            echo "GitHub User: %GH_USER%
-                            echo "Using settings.xml:"
-                            type settings.xml
-                            echo.
-                            
-                            echo "Step 1: Cleaning..."
-                            "%MAVEN_HOME%\\bin\\mvn" clean -DskipTests
-                            
-                            echo "Step 2: Compiling..."
-                            "%MAVEN_HOME%\\bin\\mvn" compile -DskipTests
-                            
-                            echo "Step 3: Packaging..."
-                            "%MAVEN_HOME%\\bin\\mvn" package -DskipTests
-                            
-                            echo "Step 4: Deploying to GitHub Packages..."
-                            "%MAVEN_HOME%\\bin\\mvn" deploy -s settings.xml -DskipTests
-                            
-                            echo "=== DEPLOYMENT COMPLETE ==="
-                        """
-                    }
+                    // Use bat script to handle everything in one go
+                    bat """
+                        echo ========================================
+                        echo DEPLOYING TO GITHUB PACKAGES
+                        echo ========================================
+                        
+                        REM Create a simple settings.xml with GitHub credentials
+                        echo ^<?xml version="1.0" encoding="UTF-8"?^> > deploy-settings.xml
+                        echo ^<settings^> >> deploy-settings.xml
+                        echo   ^<servers^> >> deploy-settings.xml
+                        echo     ^<server^> >> deploy-settings.xml
+                        echo       ^<id^>github^</id^> >> deploy-settings.xml
+                        echo       ^<username^>%GITHUB_CREDS_USR%^</username^> >> deploy-settings.xml
+                        echo       ^<password^>%GITHUB_CREDS_PSW%^</password^> >> deploy-settings.xml
+                        echo     ^</server^> >> deploy-settings.xml
+                        echo   ^</servers^> >> deploy-settings.xml
+                        echo ^</settings^> >> deploy-settings.xml
+                        
+                        echo ========================================
+                        echo 1. DISPLAYING CREDENTIALS INFO
+                        echo ========================================
+                        echo GitHub Username: %GITHUB_CREDS_USR%
+                        
+                        echo ========================================
+                        echo 2. BUILDING PROJECT
+                        echo ========================================
+                        "%MAVEN_HOME%\\bin\\mvn" clean compile -DskipTests
+                        
+                        echo ========================================
+                        echo 3. PACKAGING
+                        echo ========================================
+                        "%MAVEN_HOME%\\bin\\mvn" package -DskipTests
+                        
+                        echo ========================================
+                        echo 4. DEPLOYING TO GITHUB PACKAGES
+                        echo ========================================
+                        echo Deploying jar file to GitHub...
+                        "%MAVEN_HOME%\\bin\\mvn" deploy:deploy-file ^
+                          -Dfile=target/jenkins-demo-1.0.0.jar ^
+                          -DpomFile=pom.xml ^
+                          -DrepositoryId=github ^
+                          -Durl=https://maven.pkg.github.com/hridiklal/Build-and-Deploy-using-maven--Pipeline ^
+                          -s deploy-settings.xml ^
+                          -DskipTests
+                        
+                        echo ========================================
+                        echo 5. VERIFYING DEPLOYMENT
+                        echo ========================================
+                        if exist target/jenkins-demo-1.0.0.jar (
+                            echo JAR file exists: target/jenkins-demo-1.0.0.jar
+                            echo Size: 
+                            for %%F in ("target/jenkins-demo-1.0.0.jar") do echo %%~zF bytes
+                        ) else (
+                            echo ERROR: JAR file not found!
+                        )
+                        
+                        echo ========================================
+                        echo CLEANUP
+                        echo ========================================
+                        del deploy-settings.xml
+                        
+                        echo ========================================
+                        echo DEPLOYMENT PROCESS COMPLETED
+                        echo ========================================
+                        echo.
+                        echo NEXT STEPS:
+                        echo 1. Visit: https://github.com/hridiklal/Build-and-Deploy-using-maven--Pipeline/packages
+                        echo 2. Refresh the page in 1-2 minutes
+                        echo 3. You should see your package
+                    """
                 }
             }
         }
     }
 
     post {
-        always {
-            bat 'if exist settings.xml del settings.xml'
-            bat 'if exist target rmdir /s /q target'
-        }
         success {
-            echo "✅ SUCCESS! Build completed."
-            echo "📦 Check your GitHub Packages at:"
+            echo "✅ BUILD SUCCESSFUL!"
+            echo "📦 Check your GitHub Packages:"
             echo "https://github.com/hridiklal/Build-and-Deploy-using-maven--Pipeline/packages"
+            echo ""
+            echo "⚠️  Note: It may take 1-2 minutes for packages to appear"
         }
         failure {
-            echo "❌ FAILURE! Check the console output above."
+            echo "❌ BUILD FAILED"
+            echo "Check console output above for errors"
         }
     }
 }
