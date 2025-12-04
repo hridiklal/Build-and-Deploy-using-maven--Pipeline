@@ -1,199 +1,120 @@
 pipeline {
     agent any
-    
-    environment {
-        GITHUB_CREDS = credentials('github-packages-cred')
-    }
 
     stages {
-        stage('System Information') {
+        stage('Checkout') {
             steps {
-                bat '''
-                    echo ===========================================
-                    echo SYSTEM DIAGNOSTICS
-                    echo ===========================================
-                    echo Date: %DATE% %TIME%
-                    echo.
-                    
-                    echo 1. JAVA VERSION:
-                    java -version
-                    echo.
-                    
-                    echo 2. MAVEN VERSION:
-                    call mvn --version
-                    echo.
-                    
-                    echo 3. CURRENT DIRECTORY:
-                    cd
-                    echo.
-                    
-                    echo 4. DIRECTORY CONTENTS:
-                    dir
-                    echo.
-                    
-                    echo 5. GITHUB CREDENTIALS AVAILABLE:
-                    echo Username variable exists: %GITHUB_CREDS_USR%
-                    echo Password variable exists: %GITHUB_CREDS_PSW%
-                    echo.
-                '''
+                checkout scm
             }
         }
-        
-        stage('Check Project Structure') {
+
+        stage('Install Maven') {
             steps {
                 bat '''
                     echo ===========================================
-                    echo PROJECT STRUCTURE CHECK
+                    echo INSTALLING MAVEN ON THE FLY
                     echo ===========================================
                     
-                    echo 1. POM.XML CONTENTS:
-                    type pom.xml
-                    echo.
-                    
-                    echo 2. CHECK IF JAR IS CREATED:
-                    call mvn clean package -DskipTests -q
-                    echo.
-                    
-                    echo 3. VERIFY TARGET FOLDER:
-                    if exist target (
-                        echo Target folder exists
-                        dir target
-                        echo.
-                        echo JAR file details:
-                        for %%F in ("target\\*.jar") do (
-                            echo Found: %%~nF%%~xF (%%~zF bytes)
-                        )
+                    REM Check if Maven exists
+                    where mvn > nul 2>&1
+                    if %ERRORLEVEL% EQU 0 (
+                        echo Maven is already installed
+                        mvn --version
                     ) else (
-                        echo ERROR: Target folder not created!
+                        echo Installing Maven...
+                        
+                        REM Download Maven
+                        curl -L -o apache-maven.zip https://dlcdn.apache.org/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.zip
+                        
+                        REM Extract Maven
+                        powershell -Command "Expand-Archive -Path apache-maven.zip -DestinationPath ."
+                        
+                        REM Set Maven path
+                        set MAVEN_HOME=%cd%\apache-maven-3.9.9
+                        set PATH=%MAVEN_HOME%\bin;%PATH%
+                        
+                        echo Maven installed at: %MAVEN_HOME%
+                        mvn --version
                     )
                     echo.
                 '''
             }
         }
-        
-        stage('Test GitHub Connection') {
+
+        stage('Build & Deploy') {
             steps {
-                script {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'github-packages-cred',
-                        usernameVariable: 'GH_USER',
-                        passwordVariable: 'GH_TOKEN'
-                    )]) {
-                        bat """
-                            echo ===========================================
-                            echo GITHUB CONNECTION TEST
-                            echo ===========================================
-                            
-                            echo 1. TESTING GITHUB API ACCESS:
-                            echo Testing with username: %GH_USER%
-                            echo.
-                            
-                            echo 2. CREATE TEST SETTINGS.XML:
-                            echo ^<?xml version="1.0" encoding="UTF-8"?^> > test-settings.xml
-                            echo ^<settings^> >> test-settings.xml
-                            echo   ^<servers^> >> test-settings.xml
-                            echo     ^<server^> >> test-settings.xml
-                            echo       ^<id^>github^</id^> >> test-settings.xml
-                            echo       ^<username^>%GH_USER%^</username^> >> test-settings.xml
-                            echo       ^<password^>%GH_TOKEN%^</password^> >> test-settings.xml
-                            echo     ^</server^> >> test-settings.xml
-                            echo   ^</servers^> >> test-settings.xml
-                            echo ^</settings^> >> test-settings.xml
-                            echo.
-                            
-                            echo 3. SETTINGS.XML CONTENTS:
-                            type test-settings.xml
-                            echo.
-                            
-                            echo 4. TEST MAVEN DEPLOY COMMAND (Dry Run):
-                            call mvn deploy -s test-settings.xml -DskipTests -DdryRun=true 2>&1 | findstr /i "upload deploy"
-                            echo.
-                            
-                            echo 5. TEST DIRECT UPLOAD:
-                            echo Testing deploy:deploy-file command...
-                            call mvn deploy:deploy-file ^
-                              -Dfile=target/jenkins-demo-1.0.0.jar ^
-                              -DpomFile=pom.xml ^
-                              -DrepositoryId=github ^
-                              -Durl=https://maven.pkg.github.com/hridiklal/Build-and-Deploy-using-maven--Pipeline ^
-                              -s test-settings.xml ^
-                              -DskipTests 2>&1 | findstr /i "error fail success"
-                            echo.
-                            
-                            del test-settings.xml
-                        """
-                    }
-                }
-            }
-        }
-        
-        stage('Full Deploy Test') {
-            steps {
-                script {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'github-packages-cred',
-                        usernameVariable: 'GH_USER',
-                        passwordVariable: 'GH_TOKEN'
-                    )]) {
-                        bat """
-                            echo ===========================================
-                            echo FULL DEPLOYMENT TEST WITH VERBOSE OUTPUT
-                            echo ===========================================
-                            
-                            echo Creating settings.xml...
-                            echo ^<?xml version="1.0" encoding="UTF-8"?^> > deploy-settings.xml
-                            (
-                            echo ^<settings^>
-                            echo   ^<servers^>
-                            echo     ^<server^>
-                            echo       ^<id^>github^</id^>
-                            echo       ^<username^>%GH_USER%^</username^>
-                            echo       ^<password^>%GH_TOKEN%^</password^>
-                            echo     ^</server^>
-                            echo   ^</servers^>
-                            echo ^</settings^>
-                            ) >> deploy-settings.xml
-                            
-                            echo.
-                            echo ===== STEP 1: CLEAN AND BUILD =====
-                            call mvn clean compile -DskipTests
-                            echo.
-                            
-                            echo ===== STEP 2: PACKAGE =====
-                            call mvn package -DskipTests
-                            echo.
-                            
-                            echo ===== STEP 3: DEPLOY (WITH FULL OUTPUT) =====
-                            echo Starting deploy command...
-                            call mvn deploy -s deploy-settings.xml -DskipTests -X
-                            echo.
-                            
-                            echo ===== STEP 4: CHECK FOR SUCCESS =====
-                            echo Checking console output for upload indicators...
-                            echo If you see "Uploading to github:" above, then deploy worked.
-                            echo.
-                            
-                            del deploy-settings.xml
-                        """
-                    }
+                withCredentials([usernamePassword(
+                    credentialsId: 'github-packages-cred',
+                    usernameVariable: 'GITHUB_USER',
+                    passwordVariable: 'GITHUB_TOKEN'
+                )]) {
+                    bat '''
+                        echo ===========================================
+                        echo BUILDING AND DEPLOYING
+                        echo ===========================================
+                        
+                        REM Set Maven path again (in case of new shell)
+                        set MAVEN_HOME=%cd%\apache-maven-3.9.9
+                        set PATH=%MAVEN_HOME%\bin;%PATH%
+                        
+                        echo 1. Creating settings.xml...
+                        (
+                        echo ^<?xml version="1.0" encoding="UTF-8"?^>
+                        echo ^<settings^>
+                        echo   ^<servers^>
+                        echo     ^<server^>
+                        echo       ^<id^>github^</id^>
+                        echo       ^<username^>%GITHUB_USER%^</username^>
+                        echo       ^<password^>%GITHUB_TOKEN%^</password^>
+                        echo     ^</server^>
+                        echo   ^</servers^>
+                        echo ^</settings^>
+                        ) > deploy-settings.xml
+                        
+                        echo 2. Building project...
+                        call mvn clean compile -DskipTests
+                        
+                        echo 3. Creating JAR file...
+                        call mvn package -DskipTests
+                        
+                        echo 4. Checking JAR file...
+                        dir target\\*.jar
+                        
+                        echo 5. DEPLOYING TO GITHUB PACKAGES...
+                        echo This may take a moment...
+                        call mvn deploy -s deploy-settings.xml -DskipTests
+                        
+                        echo 6. Verifying deployment...
+                        echo If successful, you should see "Uploading to github:" above
+                        
+                        REM Cleanup
+                        del deploy-settings.xml
+                    '''
                 }
             }
         }
     }
-    
+
     post {
-        always {
-            echo "==========================================="
-            echo "DIAGNOSTIC COMPLETE"
-            echo "==========================================="
-            echo "Check the console output above for:"
-            echo "1. 'Uploading to github:' - Means package was sent"
-            echo "2. 'BUILD SUCCESS' - Means Maven succeeded"
-            echo "3. Any ERROR messages"
+        success {
+            echo "✅ BUILD SUCCESSFUL!"
             echo ""
-            echo "After running, check your GitHub Packages page:"
-            echo "https://github.com/hridiklal/Build-and-Deploy-using-maven--Pipeline/packages"
-            echo "==========================================="
+            echo "📦 **IMPORTANT: Check your GitHub Packages now:**"
+            echo "👉 https://github.com/hridiklal/Build-and-Deploy-using-maven--Pipeline/packages"
+            echo ""
+            echo "⏱️  It may take 1-2 minutes to appear"
+            echo "🔄 Refresh the page if you don't see it immediately"
+        }
+        failure {
+            echo "❌ BUILD FAILED"
+            echo "Check the console output above for specific errors"
+        }
+        always {
+            bat '''
+                echo Cleaning up temporary files...
+                if exist apache-maven.zip del apache-maven.zip
+                if exist apache-maven-3.9.9 rmdir /s /q apache-maven-3.9.9
+            '''
         }
     }
 }
