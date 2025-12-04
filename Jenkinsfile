@@ -2,10 +2,12 @@ pipeline {
     agent any
 
     environment {
-        GITHUB_CREDS = credentials('github-packages-cred')
+        // Jenkins automatically creates these from credentials
+        GITHUB_USERNAME = credentials('github-packages-cred').split(':')[0]
+        GITHUB_PASSWORD = credentials('github-packages-cred').split(':')[1]
         JAVA_HOME = tool name: 'jdk11'
         MAVEN_HOME = tool name: 'maven123'
-        PATH = "${JAVA_HOME}\\bin;${PATH}"
+        PATH = "${JAVA_HOME}\\bin;${MAVEN_HOME}\\bin;${PATH}"
     }
 
     stages {
@@ -15,49 +17,60 @@ pipeline {
             }
         }
 
-        stage('Build & Deploy') {
+        stage('Deploy to GitHub Packages') {
             steps {
-                configFileProvider([configFile(fileId: 'maven-github-settings', variable: 'MAVEN_SETTINGS')]) {
-                    bat """
-                        # Set environment variables for Maven settings.xml
-                        set GH_USER=%GITHUB_CREDS_USR%
-                        set GH_TOKEN=%GITHUB_CREDS_PSW%
-                        
-                        # Debug information
-                        echo "=== Deployment Information ==="
-                        echo "GitHub User: %GH_USER%"
-                        echo "Settings file: %MAVEN_SETTINGS%"
-                        echo "Maven Home: %MAVEN_HOME%"
-                        echo "============================="
-                        
-                        # Test Maven version first
-                        "%MAVEN_HOME%\\bin\\mvn" --version
-                        
-                        # Build with verbose output
-                        echo "Step 1: Cleaning and packaging..."
-                        "%MAVEN_HOME%\\bin\\mvn" -s "%MAVEN_SETTINGS%" -B clean package -DskipTests
-                        
-                        # Deploy to GitHub Packages with explicit repository
-                        echo "Step 2: Deploying to GitHub Packages..."
-                        "%MAVEN_HOME%\\bin\\mvn" -s "%MAVEN_SETTINGS%" -B deploy -DskipTests
-                        
-                        echo "Deployment command completed."
-                    """
+                // Create settings.xml dynamically with correct variables
+                script {
+                    def settingsContent = """
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 
+          http://maven.apache.org/xsd/settings-1.0.0.xsd">
+    <servers>
+        <server>
+            <id>github</id>
+            <username>${env.GITHUB_USERNAME}</username>
+            <password>${env.GITHUB_PASSWORD}</password>
+        </server>
+    </servers>
+</settings>
+"""
+                    writeFile file: 'deploy-settings.xml', text: settingsContent
                 }
+
+                bat """
+                    echo "=== Starting Deployment ==="
+                    echo "GitHub User: %GITHUB_USERNAME%
+                    
+                    # First, build the package
+                    mvn clean compile package -DskipTests
+                    
+                    # Deploy with the custom settings file
+                    echo "Deploying to GitHub Packages..."
+                    mvn deploy -s deploy-settings.xml -DskipTests
+                    
+                    # Alternative: Direct deploy command
+                    mvn deploy:deploy-file \\
+                        -Dfile=target/jenkins-demo-1.0.0.jar \\
+                        -DpomFile=pom.xml \\
+                        -DrepositoryId=github \\
+                        -Durl=https://maven.pkg.github.com/hridiklal/Build-and-Deploy-using-maven--Pipeline \\
+                        -s deploy-settings.xml
+                    
+                    echo "=== Deployment Complete ==="
+                """
             }
         }
     }
 
     post {
-        success {
-            echo "Build and deployment completed successfully."
-            echo "Check https://github.com/hridiklal/Build-and-Deploy-using-maven--Pipeline/packages"
-        }
-        failure {
-            echo "Pipeline failed. Check console output for details."
-        }
         always {
-            echo "Pipeline completed. Cleaning up..."
+            bat 'if exist deploy-settings.xml del deploy-settings.xml'
+            bat 'if exist target rmdir /s /q target'
+        }
+        success {
+            echo "✅ Success! Check packages at:"
+            echo "https://github.com/hridiklal/Build-and-Deploy-using-maven--Pipeline/packages"
         }
     }
 }
