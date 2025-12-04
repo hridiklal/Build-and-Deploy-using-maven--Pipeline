@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     environment {
-        GH_USER = credentials('github-username')
-        GH_TOKEN = credentials('github-token')
+        GH_USER = credentials('github-packages-cred').usr
+        GH_TOKEN = credentials('github-packages-cred').psw
     }
 
     stages {
@@ -17,6 +17,7 @@ pipeline {
         stage('Build Project') {
             steps {
                 bat """
+                    echo ===== Building =====
                     mvn -B clean package
                 """
             }
@@ -25,7 +26,8 @@ pipeline {
         stage('Deploy to GitHub Packages') {
             steps {
                 bat """
-                    mvn -s settings.xml -B deploy
+                    echo ===== Deploying to GitHub Packages =====
+                    mvn -s settings.xml -DskipTests=false -B deploy
                 """
             }
         }
@@ -33,7 +35,7 @@ pipeline {
 
     post {
         success {
-            echo "Build & Deploy completed successfully."
+            echo "Build & Deployment completed successfully."
         }
         failure {
             echo "Pipeline failed."
