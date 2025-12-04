@@ -11,30 +11,11 @@
     <version>1.0.0</version>
     <packaging>jar</packaging>
 
-    <name>Jenkins GitHub Packages Demo</name>
-    <description>Demo project deployed from Jenkins pipeline</description>
-
-    <!-- ADD THESE PROPERTIES -->
     <properties>
-        <java.version>11</java.version>
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
-    <!-- ADD THIS BUILD SECTION -->
-    <build>
-        <plugins>
-            <!-- This plugin is CRITICAL for GitHub Packages -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-deploy-plugin</artifactId>
-                <version>3.1.1</version>
-            </plugin>
-        </plugins>
-    </build>
-
-    <!-- KEEP THIS DISTRIBUTION MANAGEMENT -->
     <distributionManagement>
         <repository>
             <id>github</id>
